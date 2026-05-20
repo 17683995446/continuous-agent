@@ -362,18 +362,34 @@ class HybridStorage(StorageBackend):
                 return True
             return False
     
+    _MISSING = object()  # 哨兵值，区分"缓存未命中"和"值为None"
+    
+    def save(self, key: str, value: Any) -> bool:
+        with self._lock:
+            # 先保存到持久化存储
+            if self.persistent.save(key, value):
+                # Bug#50修复: 使用哨兵值缓存None，避免缓存穿透
+                cache_value = value if value is not None else HybridStorage._MISSING
+                self.cache.save(key, cache_value)
+                return True
+            return False
+    
     def load(self, key: str) -> Optional[Any]:
         with self._lock:
-            # 先查缓存
-            value = self.cache.load(key)
-            if value is not None:
-                return value
+            # Bug#50修复: 使用exists检查而非值检查，区分"缓存未命中"和"值为None"
+            if self.cache.exists(key):
+                # 缓存命中
+                cached = self.cache.load(key)
+                # 如果是哨兵值，说明实际值为None
+                if cached is HybridStorage._MISSING:
+                    return None
+                return cached
             
             # 缓存未命中，从持久化存储加载
             value = self.persistent.load(key)
-            if value is not None:
-                # 更新缓存
-                self.cache.save(key, value)
+            # 使用哨兵值缓存None，避免缓存穿透
+            cache_value = value if value is not None else HybridStorage._MISSING
+            self.cache.save(key, cache_value)
             
             return value
     

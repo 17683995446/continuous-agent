@@ -296,14 +296,20 @@ class CodeExecutor:
         # 如果 fixed_code 为 None，表示自动修复未实际修改代码
         actually_fixed = fixed_code is not None and fixed_code != code_content
         
+        # Bug#47修复: learnings应与success一致
+        if actually_fixed:
+            fix_learning = f"Bug修复成功: {fix_description}"
+        else:
+            fix_learning = f"Bug修复失败: {fix_description}（自动修复未生效，需手动处理）"
+        
         return TaskResult(
-            success=actually_fixed or not code_content,  # 无代码时不算失败
+            success=actually_fixed,
             output={
                 "fix_description": fix_description,
                 "error_analysis": error_analysis,
                 "files_modified": files_modified
             },
-            learnings=[f"Bug修复: {fix_description}"],
+            learnings=[fix_learning],
             files_modified=files_modified
         )
     
@@ -508,13 +514,16 @@ if __name__ == "__main__":
                     optimizations = applied_optimizations
                     logger.info(f"优化完成: {file_path}，应用 {len(optimizations)} 项优化")
         
+        # Bug#53修复: 没有实际优化时返回success=False
+        has_actual_optimization = bool(optimizations) or bool(files_modified)
+        
         return TaskResult(
-            success=True,
+            success=has_actual_optimization,
             output={
                 "optimizations": optimizations,
                 "files_modified": files_modified
             },
-            learnings=optimizations,
+            learnings=optimizations if has_actual_optimization else ["优化未生效: 未找到可优化的代码或未提供文件路径"],
             files_modified=files_modified
         )
     

@@ -409,9 +409,22 @@ class ContinuousAgent:
                         # 超过最大等待次数，标记为失败
                         logger.warning(f"⚠️ 任务依赖等待超时，放弃执行 [{task.id}]: {task.description}")
                         task.status = TaskStatus.FAILED
+                        # Bug#48修复: 设置task.result，确保任务不会"消失"
+                        task.result = TaskResult(
+                            success=False,
+                            error=f"依赖等待超时: 依赖任务未在规定时间内完成",
+                            learnings=[f"任务 {task.id} 因依赖超时失败"]
+                        )
                         with self._lock:
                             self.stats["tasks_failed"] += 1
                             self.active_tasks.pop(task.id, None)
+                        # Bug#48修复: 调用失败回调
+                        callback = self._on_task_failed
+                        if callback:
+                            try:
+                                callback(task, task.result)
+                            except Exception as cb_err:
+                                logger.error(f"依赖超时失败回调异常: {cb_err}")
                         continue
                     
                     # 重新放回队列，使用递增的优先级避免饥饿
@@ -828,13 +841,21 @@ class ContinuousAgent:
         return False
     
     def _check_retry_tasks(self):
-        """检查需要重试的任务（仅处理尚未在队列中的）"""
+        """检查需要重试的任务
+        
+        注意：当前实现中任务重试直接在 _execution_loop 的失败分支中处理
+        （设置 status=PENDING 并重新入队），不再使用 RETRYING 状态。
+        此方法保留是为了向后兼容，但实际不会找到任何 RETRYING 状态的任务。
+        """
         logger.debug(f"检查重试任务...")
         with self._lock:
             retrying_tasks = [
                 (tid, t) for tid, t in self.active_tasks.items()
                 if t.status == TaskStatus.RETRYING
             ]
+        
+        if retrying_tasks:
+            logger.warning(f"发现 {len(retrying_tasks)} 个RETRYING状态的任务（不应出现）")
         
         for task_id, task in retrying_tasks:
             # 将状态重置为PENDING再入队，防止重复入队

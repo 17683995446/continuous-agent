@@ -355,6 +355,10 @@ class TaskScheduler:
                 
                 self._completed.append(completion)
                 
+                # Bug#49修复: 限制 _completed 列表大小，防止内存泄漏
+                if len(self._completed) > 1000:
+                    self._completed = self._completed[-500:]
+                
                 # 更新统计
                 if success:
                     self._stats["total_completed"] += 1

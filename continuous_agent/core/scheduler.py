@@ -320,7 +320,13 @@ class TaskScheduler:
         
         deps = self._dependencies[task_id]
         completed_ids = {t.get("task_id") for t in self._completed}
+        # Bug#56修复: 依赖检查也应包含running中的任务（正在执行=已开始=依赖部分满足）
+        # 如果依赖任务正在运行中，说明它还没完成，依赖仍未满足
+        # 但我们可以提供一个选项：如果所有依赖都已完成或在运行中，允许执行
+        # 这里保持严格语义：只有completed才算满足
+        running_ids = set(self._running.keys())
         
+        # 严格模式：依赖必须已完成
         return deps.issubset(completed_ids)
     
     def complete(

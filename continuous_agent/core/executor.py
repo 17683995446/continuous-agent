@@ -382,8 +382,19 @@ class CodeExecutor:
             if exp.get('task_type') in ['implement', 'add_feature']
         ]
         
-        # 创建实现文件
+        # Bug#58修复: 没有output_file也没有code_content时，不应返回success=True
         output_file = context.get('output_file')
+        code_content = context.get('code_content')
+        has_work = output_file or code_content
+        
+        if not has_work:
+            return TaskResult(
+                success=False,
+                output={"implementation": description, "files_modified": []},
+                learnings=[f"实现失败: 未提供output_file或code_content"],
+                files_modified=[]
+            )
+        
         if output_file:
             output_path = self.workspace / output_file
             output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -395,13 +406,13 @@ class CodeExecutor:
             files_modified.append(str(output_path))
         
         return TaskResult(
-            success=True,
+            success=bool(files_modified),
             output={
                 "implementation": description,
                 "files_modified": files_modified,
                 "similar_implementations": len(similar_implementations)
             },
-            learnings=[f"实现完成: {description[:50]}"],
+            learnings=[f"实现完成: {description[:50]}"] if files_modified else [f"实现未产生文件: {description[:50]}"],
             files_modified=files_modified
         )
     

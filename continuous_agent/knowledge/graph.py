@@ -246,6 +246,11 @@ class KnowledgeGraph:
             条目ID
         """
         with self._lock:
+            # 参数校验：空内容不允许添加
+            if not content or not content.strip():
+                logger.warning("拒绝添加空内容经验")
+                return ""
+            
             # 生成ID
             entry_id = self._generate_id(content)
             

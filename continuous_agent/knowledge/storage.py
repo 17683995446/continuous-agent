@@ -353,15 +353,6 @@ class HybridStorage(StorageBackend):
         self.cache = MemoryStorage(max_size=cache_size)
         self._lock = threading.RLock()
     
-    def save(self, key: str, value: Any) -> bool:
-        with self._lock:
-            # 先保存到持久化存储
-            if self.persistent.save(key, value):
-                # 再更新缓存
-                self.cache.save(key, value)
-                return True
-            return False
-    
     _MISSING = object()  # 哨兵值，区分"缓存未命中"和"值为None"
     
     def save(self, key: str, value: Any) -> bool:

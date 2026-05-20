@@ -323,9 +323,14 @@ class MethodImprover:
                 new_improvements.append(improvement)
             
             # 检查参数优化机会
-            history = self.task_method_history.get(method_id, [])
-            if len(history) >= 10:
-                param_improvement = self._analyze_parameters(method, history)
+            # Bug#63修复: task_method_history的key是task_type，不是method_id
+            # 需要找到此方法适用的task_type，然后用task_type查历史
+            applicable_types = method.task_types
+            all_history = []
+            for tt in applicable_types:
+                all_history.extend(self.task_method_history.get(tt, []))
+            if len(all_history) >= 10:
+                param_improvement = self._analyze_parameters(method, all_history)
                 if param_improvement:
                     new_improvements.append(param_improvement)
         

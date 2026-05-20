@@ -250,6 +250,7 @@ class ContinuousAgent:
         # 检查队列大小限制
         current_queue_size = self.task_queue.qsize()
         if current_queue_size >= self.max_queue_size:
+            logger.warning(f"任务队列已满 ({current_queue_size}/{self.max_queue_size})")
             raise RuntimeError(f"任务队列已满 ({current_queue_size}/{self.max_queue_size})，请稍后重试")
         
         # 生成唯一任务ID（使用计数器+时间戳+随机数）
@@ -325,6 +326,7 @@ class ContinuousAgent:
             daemon=True
         )
         self._executor_thread.start()
+        logger.debug("执行线程已启动")
         
         # 启动优化线程
         self._optimizer_thread = threading.Thread(
@@ -333,6 +335,7 @@ class ContinuousAgent:
             daemon=True
         )
         self._optimizer_thread.start()
+        logger.debug("优化线程已启动")
         
         # 启动知识存储线程
         self._knowledge_thread = threading.Thread(
@@ -341,6 +344,7 @@ class ContinuousAgent:
             daemon=True
         )
         self._knowledge_thread.start()
+        logger.debug("知识线程已启动")
         
         logger.info("🚀 ContinuousAgent 已启动，开始持续运行...")
     
@@ -354,6 +358,8 @@ class ContinuousAgent:
         for thread in [self._executor_thread, self._optimizer_thread, self._knowledge_thread]:
             if thread and thread.is_alive():
                 thread.join(timeout=5)
+                if thread.is_alive():
+                    logger.warning(f"线程 {thread.name} 未能在5秒内结束")
         
         # 保存状态
         self._save_state()
@@ -362,7 +368,7 @@ class ContinuousAgent:
     def pause(self):
         """暂停执行"""
         self._paused = True
-        logger.info("Agent已暂停")
+        logger.info(f"Agent已暂停，当前活跃任务数: {len(self.active_tasks)}")
     
     def resume(self):
         """恢复执行"""
@@ -390,6 +396,7 @@ class ContinuousAgent:
                     priority, _, task = self.task_queue.get(timeout=1.0)
                 except queue.Empty:
                     # 队列为空，检查是否有待重试的任务
+                    logger.debug("任务队列为空，等待新任务...")
                     self._check_retry_tasks()
                     continue
                 
@@ -458,13 +465,27 @@ class ContinuousAgent:
                             logger.error(f"任务完成回调异常: {cb_err}")
                 else:
                     # 失败处理
-                    task.retry_count += 1
-                    if task.retry_count < task.max_retries:
-                        task.status = TaskStatus.PENDING  # 设为PENDING而非RETRYING，避免_check_retry_tasks重复入队
-                        logger.warning(f"⚠️ 任务失败，准备重试 [{task.id}] ({task.retry_count}/{task.max_retries})")
-                        self.task_queue.put((priority, task.created_at.timestamp(), task))
-                    else:
+                    # 判断是否为不可恢复的错误（如不支持的任务类型）
+                    is_unrecoverable = (
+                        result.error and 
+                        "需要自定义执行器" in (result.error or "")
+                    )
+                    
+                    if is_unrecoverable:
+                        # 不可恢复的错误直接标记失败，不浪费重试
                         task.status = TaskStatus.FAILED
+                        with self._lock:
+                            self.stats["tasks_failed"] += 1
+                            self.active_tasks.pop(task.id, None)
+                        logger.error(f"❌ 任务不可恢复 [{task.id}]: {result.error}")
+                    else:
+                        task.retry_count += 1
+                        if task.retry_count < task.max_retries:
+                            task.status = TaskStatus.PENDING
+                            logger.warning(f"⚠️ 任务失败，准备重试 [{task.id}] ({task.retry_count}/{task.max_retries})")
+                            self.task_queue.put((priority, task.created_at.timestamp(), task))
+                        else:
+                            task.status = TaskStatus.FAILED
                         task.result = result
                         with self._lock:
                             self.stats["tasks_failed"] += 1
@@ -520,6 +541,8 @@ class ContinuousAgent:
                     if optimization_result.get("improvements"):
                         self.stats["optimizations_applied"] += len(optimization_result["improvements"])
                         logger.info(f"🔧 应用 {len(optimization_result['improvements'])} 项优化")
+                else:
+                    logger.debug(f"完成任务数不足，跳过优化 (当前: {len(self.completed_tasks)})")
                         
             except Exception as e:
                 logger.error(f"优化循环异常: {e}")
@@ -570,6 +593,8 @@ class ContinuousAgent:
                     # 批量保存到磁盘（避免每次add_experience都写磁盘）
                     if self.knowledge_graph:
                         self.knowledge_graph.flush()
+                else:
+                    logger.debug("未配置知识图谱，跳过知识存储")
                         
             except Exception as e:
                 logger.error(f"知识存储循环异常: {e}")
@@ -630,6 +655,7 @@ class ContinuousAgent:
             return result
             
         except Exception as e:
+            logger.error(f"执行任务异常 [{task.id}]: {e}")
             return TaskResult(
                 success=False,
                 error=f"{str(e)}\n{traceback.format_exc()}"
@@ -744,10 +770,9 @@ class ContinuousAgent:
     
     def _check_dependencies(self, task: Task) -> bool:
         """检查任务依赖是否满足"""
-        for dep_id in task.dependencies:
-            if dep_id not in self.completed_tasks:
-                return False
-        return True
+        result = all(dep_id in self.completed_tasks for dep_id in task.dependencies)
+        logger.debug(f"检查依赖 [{task.id}]: 满足={result}")
+        return result
     
     def _would_create_cycle(self, new_task_id: str, new_task_deps: List[str]) -> bool:
         """
@@ -791,6 +816,7 @@ class ContinuousAgent:
     
     def _check_retry_tasks(self):
         """检查需要重试的任务（仅处理尚未在队列中的）"""
+        logger.debug(f"检查重试任务...")
         with self._lock:
             retrying_tasks = [
                 (tid, t) for tid, t in self.active_tasks.items()
@@ -805,6 +831,7 @@ class ContinuousAgent:
                 task.created_at.timestamp(),
                 task
             ))
+            logger.debug(f"重试任务已入队 [{task_id}]")
     
     def get_status(self) -> Dict[str, Any]:
         """获取Agent状态"""

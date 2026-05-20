@@ -157,6 +157,8 @@ class KnowledgeGraph:
                 logger.info(f"加载 {len(self.entries)} 条知识条目")
             except Exception as e:
                 logger.error(f"加载知识条目失败: {e}")
+        else:
+            logger.debug("知识条目文件不存在，使用空图谱")
         
         if relations_file.exists():
             try:
@@ -193,7 +195,7 @@ class KnowledgeGraph:
                     for r in self.relations
                 ], f, ensure_ascii=False, indent=2)
             
-            logger.debug("知识图谱数据已保存")
+            logger.debug(f"知识图谱数据已保存 ({len(self.entries)} 条目)")
         except Exception as e:
             logger.error(f"保存知识图谱失败: {e}")
     
@@ -405,6 +407,7 @@ class KnowledgeGraph:
         """
         with self._lock:
             self._stats["queries"] += 1
+            logger.debug(f"查询相关经验: query='{query[:30]}' limit={limit}")
             
             # 获取候选条目
             candidates = set(self.entries.keys())
@@ -503,6 +506,7 @@ class KnowledgeGraph:
     
     def update_success(self, entry_id: str, success: bool):
         """更新条目成功率"""
+        logger.debug(f"更新经验 [{entry_id}] success={success}")
         with self._lock:
             if entry_id in self.entries:
                 entry = self.entries[entry_id]
@@ -512,12 +516,17 @@ class KnowledgeGraph:
                     entry.fail_count += 1
                 entry.updated_at = datetime.now()
                 self._dirty = True
+            else:
+                logger.warning(f"尝试更新不存在的经验条目: {entry_id}")
     
     def flush(self):
         """将脏数据保存到磁盘"""
         if self._dirty:
+            logger.debug("flush: 检测到脏数据，保存到磁盘")
             self._save()
             self._dirty = False
+        else:
+            logger.debug("flush: 无脏数据，跳过保存")
     
     def get_stats(self) -> Dict[str, Any]:
         """获取统计信息"""

@@ -180,6 +180,7 @@ class Optimizer:
             context: 上下文
         """
         with self._lock:
+            logger.debug(f"记录任务完成: type={task_type} success={success} time={execution_time:.2f}s")
             # 记录全局指标
             self.metrics["execution_time"].append(execution_time)
             self.metrics["success"].append(1.0 if success else 0.0)
@@ -239,6 +240,7 @@ class Optimizer:
         method_used: Optional[str]
     ):
         """更新学习模式"""
+        logger.debug(f"更新模式: task_type={task_type} success={success}")
         # 更新时间预估
         if task_type not in self.learned_patterns["time_estimates"]:
             self.learned_patterns["time_estimates"][task_type] = {
@@ -297,6 +299,7 @@ class Optimizer:
             优化结果
         """
         with self._lock:
+            logger.debug("开始优化分析...")
             optimizations = []
             
             # 1. 分析执行时间趋势
@@ -365,6 +368,7 @@ class Optimizer:
                 "improvement_percent": improvement
             }
         elif improvement < -5:  # 退化超过5%
+            logger.warning(f"执行时间退化: {improvement:.1f}%")
             return {
                 "type": OptimizationType.EXECUTION_TIME,
                 "description": f"执行时间退化 {-improvement:.1f}%，需要关注",
@@ -422,6 +426,7 @@ class Optimizer:
         high_freq_errors.sort(key=lambda x: x[1]["count"], reverse=True)
         
         top_error = high_freq_errors[0]
+        logger.warning(f"发现高频错误: {top_error[0][:50]}")
         
         return {
             "type": OptimizationType.ERROR_PATTERN,

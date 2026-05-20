@@ -81,6 +81,7 @@ class CodeExecutor:
         task_type = task.task_type
         
         try:
+            logger.info(f"执行任务 [{task.id}] 类型={task_type.value} 描述={task.description[:50]}")
             if task_type == TaskType.ANALYZE:
                 result = self._analyze(task, experience)
             elif task_type == TaskType.FIX_BUG:
@@ -98,6 +99,7 @@ class CodeExecutor:
             elif task_type == TaskType.DOCUMENT:
                 result = self._document(task, experience)
             else:
+                logger.warning(f"未知的任务类型: {task_type}，任务ID: {task.id}")
                 result = TaskResult(
                     success=False,
                     error=f"未知的任务类型: {task_type}"
@@ -116,7 +118,7 @@ class CodeExecutor:
             return result
             
         except Exception as e:
-            logger.error(f"执行失败: {e}\n{traceback.format_exc()}")
+            logger.error(f"执行任务异常 [{task.id}] 类型={task_type.value}: {e}\n{traceback.format_exc()}")
             return TaskResult(
                 success=False,
                 error=str(e)
@@ -141,6 +143,7 @@ class CodeExecutor:
                 code_content = file_path.read_text(encoding='utf-8')
                 language = self._detect_language(file_path.suffix)
             else:
+                logger.warning(f"分析失败，文件不存在: {file_path}")
                 return TaskResult(
                     success=False,
                     error=f"文件不存在: {file_path}"
@@ -250,6 +253,7 @@ class CodeExecutor:
         if file_path:
             file_path = Path(file_path)
             if not file_path.exists():
+                logger.warning(f"修复bug失败，文件不存在: {file_path}")
                 return TaskResult(
                     success=False,
                     error=f"文件不存在: {file_path}"
@@ -258,6 +262,7 @@ class CodeExecutor:
         
         # 如果既没有文件路径也没有代码内容，无法修复
         if not code_content:
+            logger.warning(f"修复bug失败，缺少代码内容")
             return TaskResult(
                 success=False,
                 error="需要提供 file_path 或 code_content 才能修复bug",
@@ -285,6 +290,7 @@ class CodeExecutor:
         if fixed_code and file_path:
             # 写入修复后的代码
             file_path.write_text(fixed_code, encoding='utf-8')
+            logger.info(f"修复代码已写入: {file_path}")
             files_modified.append(str(file_path))
         
         # 如果 fixed_code 为 None，表示自动修复未实际修改代码
@@ -379,6 +385,7 @@ class CodeExecutor:
             # 生成代码框架
             code = self._generate_code(description, similar_implementations)
             output_path.write_text(code, encoding='utf-8')
+            logger.info(f"实现文件已创建: {output_path}")
             files_modified.append(str(output_path))
         
         return TaskResult(
@@ -437,6 +444,7 @@ if __name__ == "__main__":
                     file_path.write_text(refactored_code, encoding='utf-8')
                     files_modified.append(str(file_path))
                     summary = "代码已重构并保存"
+                    logger.info(f"重构完成: {file_path}")
         
         return TaskResult(
             success=True,
@@ -498,6 +506,7 @@ if __name__ == "__main__":
                     file_path.write_text(optimized_code, encoding='utf-8')
                     files_modified.append(str(file_path))
                     optimizations = applied_optimizations
+                    logger.info(f"优化完成: {file_path}，应用 {len(optimizations)} 项优化")
         
         return TaskResult(
             success=True,
@@ -548,6 +557,7 @@ if __name__ == "__main__":
         if file_path:
             output_path = Path(file_path).with_suffix('.md')
             output_path.write_text(doc_content, encoding='utf-8')
+            logger.info(f"文档已生成: {output_path}")
             files_modified.append(str(output_path))
         
         return TaskResult(
@@ -576,6 +586,7 @@ if __name__ == "__main__":
         
         try:
             # 执行测试命令
+            logger.info(f"执行测试命令: {test_command}")
             result = subprocess.run(
                 test_command.split(),
                 cwd=str(self.workspace),
@@ -607,11 +618,13 @@ if __name__ == "__main__":
             )
             
         except subprocess.TimeoutExpired:
+            logger.error(f"测试执行超时 (300s)，命令: {test_command}")
             return TaskResult(
                 success=False,
                 error="测试执行超时"
             )
         except Exception as e:
+            logger.error(f"测试执行异常: {e}")
             return TaskResult(
                 success=False,
                 error=str(e)

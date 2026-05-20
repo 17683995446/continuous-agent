@@ -15,6 +15,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import logging
 import re
 
+from ..knowledge.graph import ExperienceType
+
 logger = logging.getLogger("MethodImprover")
 
 
@@ -387,7 +389,7 @@ class MethodImprover:
                         self.knowledge_graph.add_experience(
                             content=improvement.description,
                             task_type="method_improvement",
-                            experience_type="solution",
+                            experience_type=ExperienceType.SOLUTION,  # Bug#39修复: 使用枚举而非字符串
                             context={
                                 "target_method": improvement.target_method,
                                 "improvement_type": improvement.improvement_type

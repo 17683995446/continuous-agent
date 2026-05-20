@@ -471,6 +471,9 @@ class ContinuousAgent:
                         "需要自定义执行器" in (result.error or "")
                     )
                     
+                    # Bug#37修复: 统一设置 task.result，确保后续知识存储能获取 learnings
+                    task.result = result
+                    
                     if is_unrecoverable:
                         # 不可恢复的错误直接标记失败，不浪费重试
                         task.status = TaskStatus.FAILED
@@ -478,15 +481,24 @@ class ContinuousAgent:
                             self.stats["tasks_failed"] += 1
                             self.active_tasks.pop(task.id, None)
                         logger.error(f"❌ 任务不可恢复 [{task.id}]: {result.error}")
+                        # Bug#37修复: 不可恢复失败也要调用回调
+                        callback = self._on_task_failed
+                        if callback:
+                            try:
+                                callback(task, result)
+                            except Exception as cb_err:
+                                logger.error(f"任务失败回调异常: {cb_err}")
                     else:
                         task.retry_count += 1
                         if task.retry_count < task.max_retries:
                             task.status = TaskStatus.PENDING
                             logger.warning(f"⚠️ 任务失败，准备重试 [{task.id}] ({task.retry_count}/{task.max_retries})")
                             self.task_queue.put((priority, task.created_at.timestamp(), task))
+                            # 重试中不调用失败回调，也不计入失败统计，等最终失败再处理
+                            continue  # 不走下面的最终失败逻辑
                         else:
                             task.status = TaskStatus.FAILED
-                        task.result = result
+                        # Bug#36修复: 只有最终失败才在这里计入 stats（is_unrecoverable 分支已单独计入）
                         with self._lock:
                             self.stats["tasks_failed"] += 1
                             # 失败任务也从 active_tasks 移除，防止重复重试
@@ -494,6 +506,7 @@ class ContinuousAgent:
                         logger.error(f"❌ 任务最终失败 [{task.id}]: {result.error}")
                         self._save_state()
                         
+                        # Bug#37修复: 最终失败时调用回调
                         callback = self._on_task_failed
                         if callback:
                             try:

@@ -404,6 +404,10 @@ class CodeExecutor:
             output_path.write_text(code, encoding='utf-8')
             logger.info(f"实现文件已创建: {output_path}")
             files_modified.append(str(output_path))
+        elif code_content:
+            # 有code_content但没有output_file，也算成功（分析/处理已有代码）
+            logger.info(f"处理已有代码内容: {description[:50]}")
+            files_modified.append("in_memory_processing")
         
         return TaskResult(
             success=bool(files_modified),

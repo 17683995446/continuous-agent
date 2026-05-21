@@ -216,7 +216,8 @@ class ContinuousAgent:
         task_type: TaskType = TaskType.IMPLEMENT,
         priority: TaskPriority = TaskPriority.MEDIUM,
         context: Optional[Dict[str, Any]] = None,
-        dependencies: Optional[List[str]] = None
+        dependencies: Optional[List[str]] = None,
+        max_retries: int = 3
     ) -> str:
         """
         添加新任务
@@ -227,6 +228,7 @@ class ContinuousAgent:
             priority: 优先级
             context: 上下文信息
             dependencies: 依赖的任务ID列表
+            max_retries: 最大重试次数
             
         Returns:
             任务ID
@@ -274,7 +276,8 @@ class ContinuousAgent:
             task_type=task_type,
             priority=priority,
             context=context or {},
-            dependencies=dependencies or []
+            dependencies=dependencies or [],
+            max_retries=max_retries
         )
         
         # 放入优先级队列（优先级值越小越优先）

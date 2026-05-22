@@ -94,6 +94,40 @@ class Task:
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
             "result": self.result.to_dict() if self.result else None
         }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'Task':
+        """从字典创建任务
+        
+        Bug#76: 支持状态恢复
+        """
+        from datetime import datetime
+        
+        task = cls(
+            id=data["id"],
+            description=data["description"],
+            task_type=TaskType(data["task_type"]),
+            priority=TaskPriority(data["priority"]),
+            status=TaskStatus(data["status"]),
+            context=data.get("context", {}),
+            dependencies=data.get("dependencies", []),
+            max_retries=data.get("max_retries", 3),
+            retry_count=data.get("retry_count", 0)
+        )
+        
+        # 恢复时间戳
+        if data.get("created_at"):
+            task.created_at = datetime.fromisoformat(data["created_at"])
+        if data.get("started_at"):
+            task.started_at = datetime.fromisoformat(data["started_at"])
+        if data.get("completed_at"):
+            task.completed_at = datetime.fromisoformat(data["completed_at"])
+        
+        # 恢复结果
+        if data.get("result"):
+            task.result = TaskResult.from_dict(data["result"])
+        
+        return task
 
 
 @dataclass
@@ -108,14 +142,37 @@ class TaskResult:
     
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""
+        # Bug#77修复: 处理不可序列化对象
+        output = self.output
+        if output is not None:
+            try:
+                json.dumps(output)  # 测试是否可序列化
+            except (TypeError, ValueError):
+                output = str(output)  # 转换为字符串
+        
         return {
             "success": self.success,
-            "output": str(self.output) if self.output else None,
+            "output": output,
             "error": self.error,
             "metrics": self.metrics,
             "learnings": self.learnings,
             "files_modified": self.files_modified
         }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'TaskResult':
+        """从字典创建结果
+        
+        Bug#76: 支持状态恢复
+        """
+        return cls(
+            success=data.get("success", False),
+            output=data.get("output"),
+            error=data.get("error"),
+            metrics=data.get("metrics", {}),
+            learnings=data.get("learnings", []),
+            files_modified=data.get("files_modified", [])
+        )
 
 
 class ContinuousAgent:
@@ -187,23 +244,48 @@ class ContinuousAgent:
         logger.info("ContinuousAgent 初始化完成")
     
     def _load_state(self):
-        """加载持久化状态"""
+        """加载持久化状态
+        
+        Bug#76修复: 完整恢复任务状态，包括active_tasks和completed_tasks
+        """
         if self.state_file.exists():
             try:
                 with open(self.state_file, 'r', encoding='utf-8') as f:
                     state = json.load(f)
                     self.stats = state.get("stats", self.stats)
-                    logger.info(f"加载状态: {self.stats}")
+                    
+                    # Bug#76修复: 恢复任务
+                    for task_data in state.get("active_tasks", []):
+                        try:
+                            task = Task.from_dict(task_data)
+                            self.active_tasks[task.id] = task
+                        except Exception as e:
+                            logger.warning(f"恢复任务失败: {e}")
+                    
+                    for task_data in state.get("completed_tasks", []):
+                        try:
+                            task = Task.from_dict(task_data)
+                            self.completed_tasks[task.id] = task
+                        except Exception as e:
+                            logger.warning(f"恢复已完成任务失败: {e}")
+                    
+                    logger.info(f"加载状态: stats={self.stats}, active={len(self.active_tasks)}, completed={len(self.completed_tasks)}")
             except Exception as e:
                 logger.warning(f"加载状态失败: {e}")
     
     def _save_state(self):
-        """保存状态"""
+        """保存状态
+        
+        Bug#76修复: 完整保存任务状态
+        """
         try:
-            state = {
-                "stats": self.stats,
-                "last_saved": datetime.now().isoformat()
-            }
+            with self._lock:
+                state = {
+                    "stats": self.stats,
+                    "active_tasks": [task.to_dict() for task in self.active_tasks.values()],
+                    "completed_tasks": [task.to_dict() for task in self.completed_tasks.values()],
+                    "last_saved": datetime.now().isoformat()
+                }
             self.state_file.parent.mkdir(parents=True, exist_ok=True)
             with open(self.state_file, 'w', encoding='utf-8') as f:
                 json.dump(state, f, ensure_ascii=False, indent=2)
@@ -285,6 +367,9 @@ class ContinuousAgent:
         
         with self._lock:
             self.active_tasks[task_id] = task
+        
+        # Bug#76修复: 添加任务后立即保存状态
+        self._save_state()
         
         logger.info(f"添加任务 [{task_id}]: {description}")
         return task_id

@@ -449,9 +449,20 @@ if __name__ == "__main__":
         
         context = task.context
         file_path = context.get('file_path')
+        code_content = context.get('code_content')
         
         files_modified = []
         summary = "重构完成"
+        
+        # Bug#81修复: 无file_path也无code_content时返回失败
+        if not file_path and not code_content:
+            return TaskResult(
+                success=False,
+                error="需要提供 file_path 或 code_content 才能重构",
+                output={"summary": "重构失败: 缺少代码内容", "files_modified": []},
+                learnings=["重构失败: 缺少代码内容"],
+                files_modified=[]
+            )
         
         if file_path:
             file_path = Path(file_path)

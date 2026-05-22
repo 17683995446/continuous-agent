@@ -116,6 +116,8 @@ class KnowledgeGraph:
         self.storage_path = Path(storage_path)
         self.max_entries = max_entries
         self._dirty = False  # 延迟保存标志
+        self._auto_flush_threshold = 10  # Bug#79: 自动flush阈值
+        self._auto_flush_count = 0
         
         # 存储结构
         self.entries: Dict[str, KnowledgeEntry] = {}
@@ -299,9 +301,12 @@ class KnowledgeGraph:
             if len(self.entries) > self.max_entries:
                 self._prune_old_entries()
             
-            # 延迟保存：不每次都写磁盘，改为批量保存
-            # _save() 由调用方或定时器触发
+            # Bug#79修复: 自动flush机制，防止崩溃数据丢失
             self._dirty = True
+            self._auto_flush_count += 1
+            if self._auto_flush_count >= self._auto_flush_threshold:
+                self.flush()
+                self._auto_flush_count = 0
             
             logger.info(f"添加新经验 [{entry_id}]: {content[:50]}...")
             return entry_id

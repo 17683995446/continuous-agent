@@ -129,8 +129,10 @@ class KnowledgeRetriever:
         doc_length = self._doc_lengths.get(doc_id, 1)
         tf = tf / doc_length
         
-        # IDF
-        idf = math.log(self._doc_count / (1 + doc_freq))
+        # IDF（使用 max(1, doc_freq) 防止负IDF）
+        idf = math.log(self._doc_count / max(1, doc_freq))
+        # 确保IDF非负（当词在所有文档中都出现时，IDF接近0但不为负）
+        idf = max(0, idf)
         
         return tf * idf
     

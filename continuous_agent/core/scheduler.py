@@ -206,6 +206,39 @@ class TaskScheduler:
                 # 智能调度：综合考虑优先级、预估时间、历史数据
                 task = self._smart_select()
             
+            elif self.strategy == ScheduleStrategy.ROUND_ROBIN:
+                # Bug#70修复: 实现真正的轮询策略
+                # ROUND_ROBIN 在不同优先级之间轮转，确保公平调度
+                if not hasattr(self, '_rr_last_priority') or self._rr_last_priority is None:
+                    self._rr_last_priority = -1
+                
+                # 找到下一个优先级（轮转）
+                priorities_in_queue = sorted(set(t.priority for t in self._queue))
+                if priorities_in_queue:
+                    # 找到比上次高一级的优先级
+                    next_priority = None
+                    for p in priorities_in_queue:
+                        if p > self._rr_last_priority:
+                            next_priority = p
+                            break
+                    if next_priority is None:
+                        # 回到最低优先级
+                        next_priority = priorities_in_queue[0]
+                    
+                    self._rr_last_priority = next_priority
+                    
+                    # 从该优先级的任务中选最早入队的
+                    for i, t in enumerate(self._queue):
+                        if t.priority == next_priority:
+                            # 交换到堆顶再弹出
+                            self._queue[0], self._queue[i] = self._queue[i], self._queue[0]
+                            task = heapq.heappop(self._queue)
+                            break
+                    else:
+                        task = heapq.heappop(self._queue)
+                else:
+                    task = heapq.heappop(self._queue)
+            
             else:
                 task = heapq.heappop(self._queue)
             

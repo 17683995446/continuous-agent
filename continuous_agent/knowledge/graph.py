@@ -254,8 +254,9 @@ class KnowledgeGraph:
             # 生成ID
             entry_id = self._generate_id(content)
             
-            # 检查是否已存在相似条目
-            similar = self._find_similar(content, threshold=0.9)
+            # 检查是否已存在相似条目（使用高阈值避免误判）
+            # Bug#75修复: 去重阈值从0.9提高到0.99，避免只有末尾数字不同的内容被误判为重复
+            similar = self._find_similar(content, threshold=0.99)
             if similar:
                 # 更新已有条目
                 existing = self.entries[similar[0]]
@@ -344,7 +345,8 @@ class KnowledgeGraph:
         # 简单分词（可替换为更复杂的分词器）
         text = text.lower()
         words = re.findall(r'\b\w+\b', text)
-        return [w for w in words if len(w) > 2]
+        # Bug#75修复: 只过滤单个字母，保留数字（数字对区分内容很重要）
+        return [w for w in words if not (len(w) == 1 and w.isalpha())]
     
     def _add_relation(
         self,

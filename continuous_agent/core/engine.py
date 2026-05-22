@@ -306,7 +306,8 @@ class ContinuousAgent:
                     task_type=TaskType(task_info.get("task_type", "implement")),
                     priority=TaskPriority(task_info.get("priority", 2)),
                     context=task_info.get("context"),
-                    dependencies=task_info.get("dependencies")
+                    dependencies=task_info.get("dependencies"),
+                    max_retries=task_info.get("max_retries", 3)  # Bug#67修复: 传递max_retries
                 )
                 task_ids.append(task_id)
             except (ValueError, KeyError) as e:
@@ -706,33 +707,69 @@ class ContinuousAgent:
         
         try:
             task_type = task.task_type
+            context = task.context or {}
             
             if task_type == TaskType.ANALYZE:
-                # 分析代码
-                output = self._analyze_code(task.context)
+                # Bug#68修复: 无code_content时返回失败
+                if not context.get('code_content') and not context.get('file_path'):
+                    return TaskResult(
+                        success=False,
+                        error="分析任务缺少 code_content 或 file_path",
+                        output={"message": "无法分析空代码"},
+                        learnings=["分析失败: 缺少代码内容"]
+                    )
+                output = self._analyze_code(context)
                 learnings.append(f"分析任务完成，发现 {len(output.get('issues', []))} 个问题")
                 
             elif task_type == TaskType.FIX_BUG:
-                # 修复bug
-                output = self._fix_bug(task.context)
+                # Bug#68修复: 无code_content时返回失败
+                if not context.get('code_content') and not context.get('file_path'):
+                    return TaskResult(
+                        success=False,
+                        error="修复任务缺少 code_content 或 file_path",
+                        output={"message": "无法修复空代码"},
+                        learnings=["修复失败: 缺少代码内容"]
+                    )
+                output = self._fix_bug(context)
                 learnings.append(f"Bug修复: {output.get('fix_description', '已完成')}")
                 files_modified = output.get('files_modified', [])
                 
             elif task_type == TaskType.IMPLEMENT:
-                # 实现需求
-                output = self._implement_feature(task.context)
+                # Bug#68修复: 无output_file和code_content时返回失败
+                if not context.get('output_file') and not context.get('code_content'):
+                    return TaskResult(
+                        success=False,
+                        error="实现任务缺少 output_file 或 code_content",
+                        output={"message": "无法实现空需求"},
+                        learnings=["实现失败: 缺少输出目标或代码内容"]
+                    )
+                output = self._implement_feature(context)
                 learnings.append(f"功能实现: {task.description[:50]}")
                 files_modified = output.get('files_modified', [])
                 
             elif task_type == TaskType.REFACTOR:
-                # 重构代码
-                output = self._refactor_code(task.context)
+                # Bug#68修复: 无code_content时返回失败
+                if not context.get('code_content') and not context.get('file_path'):
+                    return TaskResult(
+                        success=False,
+                        error="重构任务缺少 code_content 或 file_path",
+                        output={"message": "无法重构空代码"},
+                        learnings=["重构失败: 缺少代码内容"]
+                    )
+                output = self._refactor_code(context)
                 learnings.append(f"重构完成: {output.get('summary', '代码已优化')}")
                 files_modified = output.get('files_modified', [])
                 
             elif task_type == TaskType.ADD_FEATURE:
-                # 新增功能
-                output = self._add_feature(task.context)
+                # Bug#68修复: 无code_content时返回失败
+                if not context.get('code_content') and not context.get('output_file'):
+                    return TaskResult(
+                        success=False,
+                        error="新增功能任务缺少 code_content 或 output_file",
+                        output={"message": "无法添加空功能"},
+                        learnings=["新增功能失败: 缺少代码内容"]
+                    )
+                output = self._add_feature(context)
                 learnings.append(f"新功能添加: {task.description[:50]}")
                 files_modified = output.get('files_modified', [])
                 

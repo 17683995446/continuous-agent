@@ -199,8 +199,13 @@ class ContinuousAgent:
         self.optimizer = optimizer
         self.executor = executor
         self.workspace = Path(workspace)
-        # state_file 默认放在 workspace 目录下，避免不同实例共享状态
-        self.state_file = Path(state_file) if state_file else self.workspace / "agent_state.json"
+        # Bug#86修复: 默认state_file添加时间戳+随机数，避免多实例冲突
+        if state_file:
+            self.state_file = Path(state_file)
+        else:
+            import random
+            instance_id = f"{int(time.time())}_{random.randint(1000, 9999)}"
+            self.state_file = self.workspace / f"agent_state_{instance_id}.json"
         self.max_queue_size = max_queue_size
         
         # 任务队列

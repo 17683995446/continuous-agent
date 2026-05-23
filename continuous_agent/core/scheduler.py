@@ -8,6 +8,7 @@
 import time
 import threading
 import heapq
+from collections import defaultdict, Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional, Set
@@ -89,6 +90,9 @@ class TaskScheduler:
         # 回调函数
         self._on_schedule: Optional[Callable] = None
         self._on_complete: Optional[Callable] = None
+        
+        # Bug#91修复: 按task_type索引历史，加速_get_history_score
+        self._history_by_type: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
         
         # 加载历史
         self._load_history()
@@ -327,40 +331,39 @@ class TaskScheduler:
         return total_score
     
     def _get_history_score(self, task: ScheduledTask) -> float:
-        """获取历史得分"""
+        """获取历史得分
+        
+        Bug#91修复: 使用按task_type索引的历史，O(1)查找
+        """
         task_type = task.task_data.get("task_type", "unknown")
         
-        # 查找相似任务的历史
-        similar_tasks = [
-            h for h in self._task_history
-            if h.get("task_type") == task_type
-        ]
+        similar_tasks = self._history_by_type.get(task_type, [])
         
         if not similar_tasks:
             return 1.5  # 默认中等得分
         
-        # 计算成功率
-        successful = sum(1 for t in similar_tasks if t.get("success"))
-        success_rate = successful / len(similar_tasks)
+        # 只看最近100条
+        recent = similar_tasks[-100:]
+        successful = sum(1 for t in recent if t.get("success"))
+        success_rate = successful / len(recent)
         
-        # 转换为得分（成功率越高，得分越低）
         return (1 - success_rate) * 3
     
     def _check_dependencies(self, task_id: str) -> bool:
-        """检查任务依赖是否满足"""
+        """检查任务依赖是否满足
+        
+        Bug#94修复: 使用set缓存completed_ids，避免每次遍历列表
+        """
         if task_id not in self._dependencies:
             return True
         
         deps = self._dependencies[task_id]
-        completed_ids = {t.get("task_id") for t in self._completed}
-        # Bug#56修复: 依赖检查也应包含running中的任务（正在执行=已开始=依赖部分满足）
-        # 如果依赖任务正在运行中，说明它还没完成，依赖仍未满足
-        # 但我们可以提供一个选项：如果所有依赖都已完成或在运行中，允许执行
-        # 这里保持严格语义：只有completed才算满足
-        running_ids = set(self._running.keys())
+        # Bug#94修复: 缓存completed_ids为set，避免每次创建
+        if not hasattr(self, '_completed_ids_cache') or self._completed_ids_cache_dirty:
+            self._completed_ids_cache = {t.get("task_id") for t in self._completed}
+            self._completed_ids_cache_dirty = False
         
-        # 严格模式：依赖必须已完成
-        return deps.issubset(completed_ids)
+        return deps.issubset(self._completed_ids_cache)
     
     def complete(
         self,
@@ -394,6 +397,9 @@ class TaskScheduler:
                 
                 self._completed.append(completion)
                 
+                # Bug#94修复: 标记completed缓存为脏
+                self._completed_ids_cache_dirty = True
+                
                 # Bug#49修复: 限制 _completed 列表大小，防止内存泄漏
                 if len(self._completed) > 1000:
                     self._completed = self._completed[-500:]
@@ -407,7 +413,7 @@ class TaskScheduler:
                 self._update_avg_execution_time(execution_time)
                 
                 # 添加到历史
-                self._task_history.append({
+                history_entry = {
                     "task_id": task_id,
                     "task_type": task.task_data.get("task_type"),
                     "priority": task.priority,
@@ -415,7 +421,13 @@ class TaskScheduler:
                     "actual_duration": execution_time,
                     "success": success,
                     "timestamp": time.time()
-                })
+                }
+                self._task_history.append(history_entry)
+                
+                # Bug#91修复: 更新按type索引
+                tt = task.task_data.get("task_type")
+                if tt:
+                    self._history_by_type[tt].append(history_entry)
                 
                 # 定期保存
                 if len(self._completed) % 10 == 0:

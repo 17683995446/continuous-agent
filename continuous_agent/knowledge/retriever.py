@@ -97,12 +97,28 @@ class KnowledgeRetriever:
             logger.info(f"索引构建完成，共 {len(self._inverted_index)} 个词项")
     
     def _tokenize(self, text: str) -> List[str]:
-        """分词"""
+        """分词
+        
+        Bug#95修复: 支持中文分词（简单按字符分割）+ 英文分词
+        """
         # 转小写
         text = text.lower()
-        # 提取词
-        words = re.findall(r'\b\w+\b', text)
-        # 过滤停用词（简单版本）
+        
+        # 提取英文词
+        english_words = re.findall(r'\b[a-z]+\b', text)
+        
+        # 提取中文词（简单按2-4字组合）
+        chinese_chars = re.findall(r'[\u4e00-\u9fff]+', text)
+        chinese_words = []
+        for segment in chinese_chars:
+            if len(segment) <= 4:
+                chinese_words.append(segment)
+            else:
+                # 按2字切分
+                for i in range(0, len(segment) - 1, 2):
+                    chinese_words.append(segment[i:i+2])
+        
+        # 过滤停用词
         stop_words = {'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 
                       'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will',
                       'would', 'could', 'should', 'may', 'might', 'must', 'shall',
@@ -111,7 +127,10 @@ class KnowledgeRetriever:
                       'through', 'during', 'before', 'after', 'above', 'below',
                       'between', 'under', 'again', 'further', 'then', 'once'}
         
-        return [w for w in words if w not in stop_words and len(w) > 1]
+        all_words = [w for w in english_words if w not in stop_words and len(w) > 1]
+        all_words.extend(chinese_words)
+        
+        return all_words
     
     def _compute_tfidf(self, term: str, doc_id: str, doc_freq: int) -> float:
         """计算TF-IDF值"""

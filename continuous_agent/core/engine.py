@@ -999,14 +999,15 @@ class ContinuousAgent:
     
     def get_status(self) -> Dict[str, Any]:
         """获取Agent状态"""
-        return {
-            "running": self._running,
-            "paused": self._paused,
-            "active_tasks": len(self.active_tasks),
-            "queued_tasks": self.task_queue.qsize(),
-            "completed_tasks": len(self.completed_tasks),
-            "stats": self.stats
-        }
+        with self._lock:
+            return {
+                "running": self._running,
+                "paused": self._paused,
+                "active_tasks": len(self.active_tasks),
+                "queued_tasks": self.task_queue.qsize(),
+                "completed_tasks": len(self.completed_tasks),
+                "stats": dict(self.stats)  # 复制避免外部修改
+            }
     
     def get_task(self, task_id: str) -> Optional[Task]:
         """获取任务详情"""

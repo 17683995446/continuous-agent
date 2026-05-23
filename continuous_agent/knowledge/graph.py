@@ -246,7 +246,15 @@ class KnowledgeGraph:
             
         Returns:
             条目ID
+            
+        Raises:
+            ValueError: 内容超过最大长度限制
         """
+        # Bug#99修复: 输入长度限制，防止内存溢出
+        MAX_CONTENT_LENGTH = 1024 * 1024  # 1MB
+        if len(content) > MAX_CONTENT_LENGTH:
+            raise ValueError(f"Content too large: {len(content)} bytes (max {MAX_CONTENT_LENGTH})")
+        
         with self._lock:
             # 参数校验：空内容不允许添加
             if not content or not content.strip():

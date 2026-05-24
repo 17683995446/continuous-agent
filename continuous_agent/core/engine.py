@@ -29,6 +29,38 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ContinuousAgent")
 
+# Bug#109修复: 添加结构化日志支持
+class StructuredLogFormatter(logging.Formatter):
+    """结构化JSON日志格式化器"""
+    def format(self, record):
+        log_obj = {
+            "timestamp": datetime.now().isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+            "module": record.module,
+            "function": record.funcName,
+            "line": record.lineno
+        }
+        if record.exc_info:
+            log_obj["exception"] = self.formatException(record.exc_info)
+        return json.dumps(log_obj, ensure_ascii=False)
+
+
+def enable_structured_logging(logger_name: str = "ContinuousAgent") -> None:
+    """启用结构化JSON日志
+    
+    Bug#109: 支持日志聚合系统解析
+    """
+    target_logger = logging.getLogger(logger_name)
+    for handler in target_logger.handlers[:]:
+        target_logger.removeHandler(handler)
+    
+    handler = logging.StreamHandler()
+    handler.setFormatter(StructuredLogFormatter())
+    target_logger.addHandler(handler)
+    target_logger.setLevel(logging.INFO)
+
 
 class TaskType(Enum):
     """任务类型枚举"""
